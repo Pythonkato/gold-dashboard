@@ -2,8 +2,9 @@
 """Download macro and gold market data and write JSON files under ./data.
 
 This script fetches:
-* FRED series: DFII10 (10y breakeven inflation) and DTWEXBGS (trade-weighted USD index)
+* FRED series: DFII10 (10y TIPS real yield) and DTWEXBGS (trade-weighted USD index)
 * Alpha Vantage series: XAUUSD (FX_DAILY), GLD, and IAU (TIME_SERIES_DAILY_ADJUSTED)
+  - XAUUSD falls back to TIME_SERIES_DAILY and then to the FRED GOLDAMGBD228NLBM series when unavailable
 * Optional central bank balance sheet CSV if CB_SHEETS_CSV_URL is provided, saved as cb_sheets.json
 
 Environment variables required:
@@ -27,12 +28,11 @@ import requests
 DATA_DIR = Path(__file__).parent / "data"
 FRED_BASE_URL = "https://api.stlouisfed.org/fred/series/observations"
 ALPHA_BASE_URL = "https://www.alphavantage.co/query"
-
+FRED_GOLD_SERIES_ID = "GOLDAMGBD228NLBM"  # LBMA Gold Price AM USD
 
 @dataclass(frozen=True)
 class SeriesConfig:
     """Configuration to fetch a single time-series and persist it to disk."""
-
     source: str
     filename: str
     series_id: Optional[str] = None
@@ -75,15 +75,17 @@ def ensure_data_dir() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def float_or_none(value: str) -> Optional[float]:
+def float_or_none(value: Any) -> Optional[float]:
     try:
-        value = value.strip()
-    except AttributeError:
+        if isinstance(value, (int, float)):
+            return float(value)
+        s = str(value).strip()
+    except Exception:
         return None
-    if value in {"", ".", "NA", "nan", "NaN"}:
+    if s in {"", ".", "NA", "nan", "NaN", "None"}:
         return None
     try:
-        return float(value)
+        return float(s)
     except ValueError:
         return None
 
@@ -96,10 +98,10 @@ def save_json(filename: str, data: Any) -> None:
 
 def _check_alpha_errors(payload: Dict[str, Any], label: str) -> None:
     """Raise a helpful error message when Alpha Vantage throttles or errors."""
-
     if "Error Message" in payload:
         raise RuntimeError(f"Alpha Vantage error for {label}: {payload['Error Message']}")
     if "Note" in payload:
+        # Throttling or generic service note
         raise RuntimeError(
             "Alpha Vantage request was throttled. Please wait and retry or reduce frequency."
         )
@@ -129,13 +131,33 @@ def fetch_fred_series(series_id: str) -> List[Dict[str, Any]]:
         date_str = obs.get("date")
         if not date_str:
             continue
-        series.append({
-            "date": date_str,
-            "value": value,
-        })
+        series.append({"date": date_str, "value": value})
 
     series.sort(key=lambda item: datetime.fromisoformat(item["date"]))
     return series
+
+
+def _fred_gold_close_series() -> List[Dict[str, Any]]:
+    """Return LBMA Gold (AM fix) from FRED as [{date, close}] to match FX/Equity schema."""
+    print(
+        "Falling back to FRED gold price series GOLDAMGBD228NLBM (London AM fix, 10:30) for XAU/USD..."
+    )
+    series = fetch_fred_series(FRED_GOLD_SERIES_ID)
+    if not series:
+        raise RuntimeError("FRED gold price series returned no observations")
+
+    converted: List[Dict[str, Any]] = []
+    for item in series:
+        value = float_or_none(item.get("value"))
+        date = item.get("date")
+        if value is None or not date:
+            continue
+        converted.append({"date": date, "close": value})
+
+    if not converted:
+        raise RuntimeError("FRED gold price series did not contain usable values")
+
+    return converted
 
 
 def _parse_alpha_close_series(time_series: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -145,7 +167,6 @@ def _parse_alpha_close_series(time_series: Dict[str, Dict[str, Any]]) -> List[Di
         if close is None:
             continue
         parsed.append({"date": date_str, "close": close})
-
     parsed.sort(key=lambda item: datetime.fromisoformat(item["date"]))
     return parsed
 
@@ -182,6 +203,7 @@ def fetch_alpha_fx(from_symbol: str, to_symbol: str) -> List[Dict[str, Any]]:
     response.raise_for_status()
     payload = response.json()
 
+    # Special handling for XAU/USD not supported by FX_DAILY
     error_message = payload.get("Error Message")
     if (
         error_message
@@ -190,7 +212,17 @@ def fetch_alpha_fx(from_symbol: str, to_symbol: str) -> List[Dict[str, Any]]:
         and to_symbol.upper() == "USD"
     ):
         print("FX_DAILY not available for XAU/USD, retrying TIME_SERIES_DAILY...")
-        return _fetch_alpha_daily_close(f"{from_symbol}{to_symbol}", api_key, f"{from_symbol}/{to_symbol}")
+        try:
+            return _fetch_alpha_daily_close(
+                f"{from_symbol}{to_symbol}", api_key, f"{from_symbol}/{to_symbol}"
+            )
+        except Exception as exc:
+            print(
+                f"TIME_SERIES_DAILY fallback failed for XAU/USD ({exc}). "
+                f"Attempting FRED gold series...",
+                file=sys.stderr,
+            )
+            return _fred_gold_close_series()
 
     _check_alpha_errors(payload, f"{from_symbol}/{to_symbol}")
 
@@ -222,12 +254,14 @@ def fetch_alpha_equity(symbol: str) -> List[Dict[str, Any]]:
         volume = float_or_none(values.get("6. volume", ""))
         if close is None and adjusted_close is None:
             continue
-        parsed.append({
-            "date": date_str,
-            "close": close,
-            "adjusted_close": adjusted_close,
-            "volume": volume,
-        })
+        parsed.append(
+            {
+                "date": date_str,
+                "close": close,
+                "adjusted_close": adjusted_close,
+                "volume": volume,
+            }
+        )
 
     parsed.sort(key=lambda item: datetime.fromisoformat(item["date"]))
     return parsed
@@ -241,7 +275,9 @@ def fetch_cb_sheets(url: str) -> List[Dict[str, Any]]:
 
     rows: List[Dict[str, Any]] = []
     for row in reader:
-        normalized: Dict[str, Any] = {k: float_or_none(v) if k.lower() != "date" else v for k, v in row.items()}
+        normalized: Dict[str, Any] = {
+            k: float_or_none(v) if k.lower() != "date" else v for k, v in row.items()
+        }
         rows.append(normalized)
 
     rows.sort(key=lambda item: datetime.fromisoformat(item["date"]))
