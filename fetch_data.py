@@ -138,6 +138,34 @@ def fetch_fred_series(series_id: str) -> List[Dict[str, Any]]:
     return series
 
 
+def _parse_alpha_close_series(time_series: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+    parsed: List[Dict[str, Any]] = []
+    for date_str, values in time_series.items():
+        close = float_or_none(values.get("4. close", ""))
+        if close is None:
+            continue
+        parsed.append({"date": date_str, "close": close})
+
+    parsed.sort(key=lambda item: datetime.fromisoformat(item["date"]))
+    return parsed
+
+
+def _fetch_alpha_daily_close(symbol: str, api_key: str, label: str) -> List[Dict[str, Any]]:
+    params = {
+        "function": "TIME_SERIES_DAILY",
+        "symbol": symbol,
+        "outputsize": "full",
+        "apikey": api_key,
+    }
+    response = requests.get(ALPHA_BASE_URL, params=params, timeout=30)
+    response.raise_for_status()
+    payload = response.json()
+    _check_alpha_errors(payload, label)
+
+    time_series = payload.get("Time Series (Daily)", {})
+    return _parse_alpha_close_series(time_series)
+
+
 def fetch_alpha_fx(from_symbol: str, to_symbol: str) -> List[Dict[str, Any]]:
     api_key = os.environ.get("ALPHAVANTAGE_API_KEY")
     if not api_key:
@@ -153,18 +181,21 @@ def fetch_alpha_fx(from_symbol: str, to_symbol: str) -> List[Dict[str, Any]]:
     response = requests.get(ALPHA_BASE_URL, params=params, timeout=30)
     response.raise_for_status()
     payload = response.json()
+
+    error_message = payload.get("Error Message")
+    if (
+        error_message
+        and "Invalid API call" in error_message
+        and from_symbol.upper() == "XAU"
+        and to_symbol.upper() == "USD"
+    ):
+        print("FX_DAILY not available for XAU/USD, retrying TIME_SERIES_DAILY...")
+        return _fetch_alpha_daily_close(f"{from_symbol}{to_symbol}", api_key, f"{from_symbol}/{to_symbol}")
+
     _check_alpha_errors(payload, f"{from_symbol}/{to_symbol}")
 
     time_series = payload.get("Time Series FX (Daily)", {})
-    parsed: List[Dict[str, Any]] = []
-    for date_str, values in time_series.items():
-        close = float_or_none(values.get("4. close", ""))
-        if close is None:
-            continue
-        parsed.append({"date": date_str, "close": close})
-
-    parsed.sort(key=lambda item: datetime.fromisoformat(item["date"]))
-    return parsed
+    return _parse_alpha_close_series(time_series)
 
 
 def fetch_alpha_equity(symbol: str) -> List[Dict[str, Any]]:
