@@ -1,59 +1,121 @@
-<script>
-  const $=id=>document.getElementById(id);
-  const fmt=new Intl.NumberFormat('en-US',{maximumFractionDigits:2});
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Gold Macro Dashboard</title>
+<style>
+  :root { --bg:#0b1220; --card:#0f172a; --line:#1f2937; --text:#e5e7eb; --muted:#94a3b8; }
+  html,body{height:100%}
+  body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;margin:0}
+  .wrap{max-width:1100px;margin:24px auto;padding:0 16px}
+  .kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin:12px 0 24px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+  .k{font-size:12px;color:var(--muted)} .v{font-size:20px;margin-top:4px}
+  canvas{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px}
+  .g{display:grid;grid-template-columns:1fr;gap:16px}
+  .debug{white-space:pre-wrap;background:#111827;border:1px dashed #374151;color:#d1d5db;border-radius:8px;padding:8px;margin:16px 0}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+<script defer>
+  const $ = id => document.getElementById(id);
+  const fmt = new Intl.NumberFormat('en-US',{maximumFractionDigits:2});
+  const log = (m)=>{ const box=$('debug'); if(box){ box.style.display='block'; box.textContent += (m+'\n'); } console.log(m); };
 
   async function j(p){
-    const r=await fetch(p+`?v=${Date.now()}`);
+    const url = p + `?v=${Date.now()}`;
+    const r = await fetch(url);
     if(!r.ok) throw new Error(`${p} ${r.status}`);
-    return r.json();
+    return r.json(); // 返り値は配列
   }
 
-  function build(arr,key){return{labels:arr.map(d=>d.date),data:arr.map(d=>Number(d[key]))};}
+  function build(arr,key){ return {labels:arr.map(d=>d.date), data:arr.map(d=>Number(d[key]))}; }
   function line(el,labels,datasets){
+    if(!el){ throw new Error('canvas element not found'); }
     return new Chart(el,{type:'line',data:{labels,datasets},
       options:{responsive:true,interaction:{mode:'index',intersect:false},
         plugins:{legend:{labels:{color:'#cbd5e1'}}},
         scales:{x:{ticks:{color:'#94a3b8'}},y:{ticks:{color:'#94a3b8'},grid:{color:'#1f2937'}}}});}
-  (async()=>{
-    const tasks = {
-      dfii10: j('data/dfii10.json'),
-      dxy:    j('data/dtwexbgs.json'),
-      xau:    j('data/xauusd.json'),
-      gld:    j('data/gld.json'),
-      iau:    j('data/iau.json'),
+  window.addEventListener('DOMContentLoaded', async ()=>{
+    try{
+      if(!window.Chart){ log('Chart.js が読み込まれていません'); return; }
+
+      // まず存在チェック：JSONに直接アクセスできるか（デバッグ用）
+      const files = ['dfii10','dtwexbgs','xauusd','gld','iau'];
+      for(const f of files){
+        try{
+          const t = await (await fetch(`data/${f}.json?v=${Date.now()}`)).text();
+          if(!t.trim().startsWith('[')) log(`warn: data/${f}.json が配列ではありません。先頭=${t.slice(0,40)}`);
+        }catch(e){ log(`error: data/${f}.json にアクセスできません → ${e}`); }
+      }
+
+      // 本読み込み（部分表示対応）
+      const tasks = {
+        dfii10: j('data/dfii10.json'),
+        dxy:    j('data/dtwexbgs.json'),
+        xau:    j('data/xauusd.json'),
+        gld:    j('data/gld.json'),
+        iau:    j('data/iau.json'),
     };
-    const res = await Promise.allSettled(Object.values(tasks));
-    const [dfii10,dxy,xau,gld,iau] = res.map(r=>r.status==='fulfilled'?r.value:null);
+      const res = await Promise.allSettled(Object.values(tasks));
+      const [dfii10,dxy,xau,gld,iau] = res.map(r=>r.status==='fulfilled'?r.value:null);
 
-    const last = a => a?.[a.length-1];
+      const last = a => a?.[a.length-1];
 
-    // KPI（取れたものだけ更新）
-    try { if (xau) $('kpi-gold').textContent = '$'+fmt.format(last(xau).close); } catch {}
-    try { if (dfii10) $('kpi-tips').textContent = fmt.format(last(dfii10).value)+'%'; } catch {}
-    try { if (dxy) $('kpi-dxy').textContent = fmt.format(last(dxy).value); } catch {}
-    try { if (gld) $('kpi-gld').textContent = fmt.format(last(gld).close); } catch {}
-    try { if (iau) $('kpi-iau').textContent = fmt.format(last(iau).close); } catch {}
+      // KPI（取れたものだけ更新）
+      try { if (xau) $('kpi-gold').textContent = '$'+fmt.format(last(xau).close); } catch(e){ log('kpi gold: '+e); }
+      try { if (dfii10) $('kpi-tips').textContent = fmt.format(last(dfii10).value)+'%'; } catch(e){ log('kpi tips: '+e); }
+      try { if (dxy) $('kpi-dxy').textContent = fmt.format(last(dxy).value); } catch(e){ log('kpi dxy: '+e); }
+      try { if (gld) $('kpi-gld').textContent = fmt.format(last(gld).close); } catch(e){ log('kpi gld: '+e); }
+      try { if (iau) $('kpi-iau').textContent = fmt.format(last(iau).close); } catch(e){ log('kpi iau: '+e); }
 
-    // チャート（取れたものだけ描画）
-    try { if (xau) { const g=build(xau,'close'); line($('#chart-gold'), g.labels,[{label:'XAUUSD',data:g.data}]); } } catch {}
-    try { if (dfii10){ const t=build(dfii10,'value'); line($('#chart-tips'), t.labels,[{label:'DFII10 (real 10y)',data:t.data}]); } } catch {}
-    try { if (dxy)  { const dx=build(dxy,'value');  line($('#chart-dxy'), dx.labels,[{label:'DTWEXBGS',data:dx.data}]); } } catch {}
-    try {
-      if (gld && iau) {
-        const gg=build(gld,'close'); const ii=build(iau,'close');
-        line($('#chart-etf'), gg.labels,[{label:'GLD',data:gg.data},{label:'IAU',data:ii.data}]);
-      } else if (gld) {
-        const gg=build(gld,'close'); line($('#chart-etf'), gg.labels,[{label:'GLD',data:gg.data}]);
-      } else if (iau) {
-        const ii=build(iau,'close'); line($('#chart-etf'), ii.labels,[{label:'IAU',data:ii.data}]);
-      }
-    } catch {}
+      // チャート（取れたものだけ描画）
+      try { if (xau) { const g=build(xau,'close'); line($('#chart-gold'), g.labels,[{label:'XAUUSD',data:g.data}]); } } catch(e){ log('chart gold: '+e); }
+      try { if (dfii10){ const t=build(dfii10,'value'); line($('#chart-tips'), t.labels,[{label:'DFII10 (real 10y)',data:t.data}]); } } catch(e){ log('chart tips: '+e); }
+      try { if (dxy)  { const dx=build(dxy,'value');  line($('#chart-dxy'), dx.labels,[{label:'DTWEXBGS',data:dx.data}]); } } catch(e){ log('chart dxy: '+e); }
+      try {
+        if (gld && iau) {
+          const gg=build(gld,'close'); const ii=build(iau,'close');
+          line($('#chart-etf'), gg.labels,[{label:'GLD',data:gg.data},{label:'IAU',data:ii.data}]);
+        } else if (gld) {
+          const gg=build(gld,'close'); line($('#chart-etf'), gg.labels,[{label:'GLD',data:gg.data}]);
+        } else if (iau) {
+          const ii=build(iau,'close'); line($('#chart-etf'), ii.labels,[{label:'IAU',data:ii.data}]);
+        }
+      } catch(e){ log('chart etf: '+e); }
 
-    // 失敗ログを可視化（開発用）
-    res.forEach((r,i)=>{
-      if(r.status!=='fulfilled'){
-        console.warn('fetch failed:', Object.keys(tasks)[i], r.reason);
-      }
-    });
-  })();
+      // 失敗ログ（開発用）
+      res.forEach((r,i)=>{
+        if(r.status!=='fulfilled'){
+          log(`fetch failed: ${['dfii10','dxy','xau','gld','iau'][i]} → ${r.reason}`);
+        }
+      });
+    }catch(e){
+      log('fatal: '+e);
+    }
+  });
 </script>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Gold Macro Dashboard</h1>
+
+    <div class="kpis">
+      <div class="card"><div class="k">Gold (XAUUSD)</div><div class="v" id="kpi-gold">—</div></div>
+      <div class="card"><div class="k">10y TIPS real (DFII10)</div><div class="v" id="kpi-tips">—</div></div>
+      <div class="card"><div class="k">Trade-weighted USD (DTWEXBGS)</div><div class="v" id="kpi-dxy">—</div></div>
+      <div class="card"><div class="k">GLD</div><div class="v" id="kpi-gld">—</div></div>
+      <div class="card"><div class="k">IAU</div><div class="v" id="kpi-iau">—</div></div>
+    </div>
+
+    <div class="g">
+      <canvas id="chart-gold" height="120"></canvas>
+      <canvas id="chart-tips" height="120"></canvas>
+      <canvas id="chart-dxy"  height="120"></canvas>
+      <canvas id="chart-etf"  height="120"></canvas>
+    </div>
+
+    <div id="debug" class="debug" style="display:none"></div>
+  </div>
+</body>
+</html>
