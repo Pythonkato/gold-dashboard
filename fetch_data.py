@@ -4,7 +4,7 @@
 This script fetches:
 * FRED series: DFII10 (10y TIPS real yield) and DTWEXBGS (trade-weighted USD index)
 * Alpha Vantage series: XAUUSD (FX_DAILY), GLD, and IAU (TIME_SERIES_DAILY_ADJUSTED)
-  - XAUUSD falls back to TIME_SERIES_DAILY and then to the FRED GOLDAMGBD228NLBM series when unavailable
+  - XAUUSD falls back to TIME_SERIES_DAILY and then to the FRED GOLDAMGBD228NLBM London AM fix when unavailable
 * Optional central bank balance sheet CSV if CB_SHEETS_CSV_URL is provided, saved as cb_sheets.json
 
 Environment variables required:
