@@ -194,6 +194,8 @@ def _fetch_alpha_daily_close(symbol: str, api_key: str, label: str) -> List[Dict
 
 
 def _xauusd_time_series_or_fred(api_key: str, message: str) -> List[Dict[str, Any]]:
+    """Retry TIME_SERIES_DAILY before falling back to the FRED London AM fix."""
+
     print(message)
     try:
         return _fetch_alpha_daily_close("XAUUSD", api_key, "XAU/USD")
