@@ -14,49 +14,50 @@
   .k{font-size:12px;color:var(--muted)} .v{font-size:20px;margin-top:4px}
   canvas{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px}
   .g{display:grid;grid-template-columns:1fr;gap:16px}
-  .debug{white-space:pre-wrap;background:#111827;border:1px dashed #374151;color:#d1d5db;border-radius:8px;padding:8px;margin:16px 0}
+  .debug{white-space:pre-wrap;background:#111827;border:1px dashed #374151;color:#d1d5db;border-radius:8px;padding:8px;margin:16px 0;display:none}
+  a, a:visited { color:#93c5fd; }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+
+<!-- Chart.js を UMD 版で固定（4.4.3） -->
+<script
+  src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"
+  integrity="sha256-1tJvM+kQm8xQp+3wOyS2sH9VxeZp0yVwUwrmM0k0dJk="
+  crossorigin="anonymous"
+  defer></script>
+
 <script defer>
   const $ = id => document.getElementById(id);
   const fmt = new Intl.NumberFormat('en-US',{maximumFractionDigits:2});
-  const log = (m)=>{ const box=$('debug'); if(box){ box.style.display='block'; box.textContent += (m+'\n'); } console.log(m); };
+  const log = (m)=>{ const box=$('debug'); box.style.display='block'; box.textContent += (m+'\n'); console.log(m); };
 
   async function j(p){
-    const url = p + `?v=${Date.now()}`;
+    const url = p + `?v=${Date.now()}`;           // キャッシュ回避
     const r = await fetch(url);
     if(!r.ok) throw new Error(`${p} ${r.status}`);
-    return r.json(); // 返り値は配列
+    return r.json(); // 返り値：配列
   }
 
   function build(arr,key){ return {labels:arr.map(d=>d.date), data:arr.map(d=>Number(d[key]))}; }
+
   function line(el,labels,datasets){
-    if(!el){ throw new Error('canvas element not found'); }
+    if(!el) throw new Error('canvas not found');
     return new Chart(el,{type:'line',data:{labels,datasets},
       options:{responsive:true,interaction:{mode:'index',intersect:false},
         plugins:{legend:{labels:{color:'#cbd5e1'}}},
         scales:{x:{ticks:{color:'#94a3b8'}},y:{ticks:{color:'#94a3b8'},grid:{color:'#1f2937'}}}});}
+  
   window.addEventListener('DOMContentLoaded', async ()=>{
     try{
       if(!window.Chart){ log('Chart.js が読み込まれていません'); return; }
 
-      // まず存在チェック：JSONに直接アクセスできるか（デバッグ用）
-      const files = ['dfii10','dtwexbgs','xauusd','gld','iau'];
-      for(const f of files){
-        try{
-          const t = await (await fetch(`data/${f}.json?v=${Date.now()}`)).text();
-          if(!t.trim().startsWith('[')) log(`warn: data/${f}.json が配列ではありません。先頭=${t.slice(0,40)}`);
-        }catch(e){ log(`error: data/${f}.json にアクセスできません → ${e}`); }
-      }
-
-      // 本読み込み（部分表示対応）
+      // 本読み込み（どれか落ちても他は表示：allSettled）
       const tasks = {
-        dfii10: j('data/dfii10.json'),
-        dxy:    j('data/dtwexbgs.json'),
-        xau:    j('data/xauusd.json'),
-        gld:    j('data/gld.json'),
-        iau:    j('data/iau.json'),
-    };
+        dfii10: j('data/dfii10.json'),   // [{date, value}]
+        dxy:    j('data/dtwexbgs.json'), // [{date, value}]
+        xau:    j('data/xauusd.json'),   // [{date, close}]
+        gld:    j('data/gld.json'),      // [{date, close, ...}]
+        iau:    j('data/iau.json'),      // [{date, close, ...}]
+      };
       const res = await Promise.allSettled(Object.values(tasks));
       const [dfii10,dxy,xau,gld,iau] = res.map(r=>r.status==='fulfilled'?r.value:null);
 
@@ -84,7 +85,7 @@
         }
       } catch(e){ log('chart etf: '+e); }
 
-      // 失敗ログ（開発用）
+      // 失敗ログ（どれが落ちたか可視化）
       res.forEach((r,i)=>{
         if(r.status!=='fulfilled'){
           log(`fetch failed: ${['dfii10','dxy','xau','gld','iau'][i]} → ${r.reason}`);
@@ -115,7 +116,12 @@
       <canvas id="chart-etf"  height="120"></canvas>
     </div>
 
-    <div id="debug" class="debug" style="display:none"></div>
+    <div id="debug" class="debug"></div>
+
+    <p style="color:#94a3b8;font-size:12px;">
+      Data: FRED (DFII10, DTWEXBGS), Alpha Vantage / FRED (XAUUSD/Gold), ETFs (GLD/IAU).<br/>
+      If a dataset fails to load, others will still render. See “Debug” for details.
+    </p>
   </div>
 </body>
 </html>
