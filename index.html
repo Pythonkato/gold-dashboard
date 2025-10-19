@@ -5,12 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta
     name="description"
-    content="Gold Macro Dashboard は金価格・ETF・米ドル指数・期待インフレなど主要指標をまとめた可視化ページです。"
+    content="Gold Macro Dashboard は金価格・ETF・米ドル指数・実質金利など主要指標をまとめた可視化ページです。"
   />
   <title>Gold Macro Dashboard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet" />
+  <script
+    src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"
+    integrity="sha384-Rw1QheMqgkSMD+WIOmU5Ypt/ctJxcDPpsl4pXWRgn/hEctksIA6REmoPI5DFvncA"
+    crossorigin="anonymous"
+    defer
+  ></script>
   <style>
     :root {
       color-scheme: dark;
@@ -21,14 +27,13 @@
       --muted: #9aa3b1;
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     body {
       margin: 0;
       min-height: 100vh;
-      background: radial-gradient(circle at top left, rgba(242, 181, 68, 0.2), transparent 45%),
+      background:
+        radial-gradient(circle at top left, rgba(242, 181, 68, 0.2), transparent 45%),
         radial-gradient(circle at bottom right, rgba(62, 83, 153, 0.2), transparent 45%),
         var(--bg);
       font-family: 'Roboto', sans-serif;
@@ -143,9 +148,7 @@
       font-size: 0.85rem;
     }
 
-    a {
-      color: var(--accent);
-    }
+    a { color: var(--accent); }
   </style>
 </head>
 <body>
@@ -153,142 +156,251 @@
     <h1>Gold Macro Dashboard</h1>
     <p class="subtitle">
       金市場とマクロ環境の主要指標をまとめたダッシュボードです。最新の KPI とトレンドを追跡し、
-      金（XAUUSD）と代表的な ETF（GLD, IAU）、米ドル指数、10 年 BEI を可視化します。
+      金（XAUUSD）と代表的な ETF（GLD, IAU）、米ドル指数、10 年 TIPS 実質利回り（DFII10）を可視化します。
     </p>
   </header>
 
-  <section class="kpi-grid" id="kpiGrid" aria-live="polite">
-    <article class="kpi-card">
-      <span class="kpi-title">Gold Spot (XAUUSD)</span>
-      <span class="kpi-value" id="kpi-gold">--</span>
-    </article>
-    <article class="kpi-card">
-      <span class="kpi-title">10y TIPS Real Yield (DFII10)</span>
-      <span class="kpi-value" id="kpi-tips">--</span>
-    </article>
-    <article class="kpi-card">
-      <span class="kpi-title">Trade-Weighted USD (DTWEXBGS)</span>
-      <span class="kpi-value" id="kpi-dxy">--</span>
-    </article>
-    <article class="kpi-card">
-      <span class="kpi-title">GLD ETF</span>
-      <span class="kpi-value" id="kpi-gld">--</span>
-    </article>
-    <article class="kpi-card">
-      <span class="kpi-title">IAU ETF</span>
-      <span class="kpi-value" id="kpi-iau">--</span>
-    </article>
-  </section>
-
-  <section class="charts-grid" id="chartsGrid">
-    <article class="chart-card">
-      <h2 class="chart-title">Gold Spot (XAUUSD)</h2>
-      <canvas id="chart-gold" role="img" aria-label="Gold spot price chart"></canvas>
-    </article>
-    <article class="chart-card">
-      <h2 class="chart-title">10y TIPS Real Yield (DFII10)</h2>
-      <canvas id="chart-tips" role="img" aria-label="10y TIPS real yield chart"></canvas>
-    </article>
-    <article class="chart-card">
-      <h2 class="chart-title">Trade-Weighted USD (DTWEXBGS)</h2>
-      <canvas id="chart-dxy" role="img" aria-label="Trade-weighted USD index chart"></canvas>
-    </article>
-    <article class="chart-card">
-      <h2 class="chart-title">Gold ETFs</h2>
-      <canvas id="chart-etf" role="img" aria-label="Gold ETFs chart"></canvas>
-    </article>
-    <article class="chart-card">
-      <h2 class="chart-title">Central Bank Holdings</h2>
-      <canvas id="chart-cb" role="img" aria-label="Central bank holdings chart"></canvas>
-    </article>
-  </section>
+  <section class="kpi-grid" id="kpiGrid" aria-live="polite"></section>
+  <section class="charts-grid" id="chartsGrid"></section>
 
   <footer>
     データソース: FRED, Alpha Vantage. GitHub Actions により自動更新。
   </footer>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
-    const $ = (id)=>document.getElementById(id);
-    const fmt = new Intl.NumberFormat('en-US',{maximumFractionDigits:2});
+    const currencyFormatter = new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 2,
+    });
 
-    async function loadArray(path){
-      const r = await fetch(path+`?v=${Date.now()}`);
-      if(!r.ok) throw new Error('failed '+path);
-      return r.json();
-    }
+    const numberFormatter = new Intl.NumberFormat('en-US', {
+      maximumFractionDigits: 2,
+    });
 
-    function lineChart(ctx, labels, datasets){
-      return new Chart(ctx,{
-        type:'line',
-        data:{ labels, datasets },
-        options:{
-          responsive:true,
-          interaction:{ mode:'index', intersect:false },
-          plugins:{ legend:{ labels:{ color:'#cbd5e1' } } },
-          scales:{
-            x:{ ticks:{ color:'#94a3b8' } },
-            y:{ ticks:{ color:'#94a3b8' }, grid:{ color:'#1f2937' } }
-          }
-        }
-      });
-    }
+    const percentFormatter = new Intl.NumberFormat('en-US', {
+      style: 'percent',
+      maximumFractionDigits: 2,
+    });
 
-    // 配列 → {labels, data} へ
-    // valueKey は dfii10/dtwexbgs では 'value'、金やETFは 'close'
-    function build(arr, valueKey){
-      const labels = arr.map(d=>d.date);
-      const data   = arr.map(d=>Number(d[valueKey]));
-      return { labels, data };
-    }
+    const DATASETS = [
+      {
+        id: 'xauusd',
+        label: 'Gold Spot (XAUUSD)',
+        path: 'data/xauusd.json',
+        valueKey: 'close',
+        formatter: (v) => currencyFormatter.format(Number(v)),
+      },
+      {
+        id: 'gld',
+        label: 'GLD ETF',
+        path: 'data/gld.json',
+        valueKey: 'adjusted_close',
+        formatter: (v) => currencyFormatter.format(Number(v)),
+      },
+      {
+        id: 'iau',
+        label: 'IAU ETF',
+        path: 'data/iau.json',
+        valueKey: 'adjusted_close',
+        formatter: (v) => currencyFormatter.format(Number(v)),
+      },
+      {
+        id: 'dtwexbgs',
+        label: 'Trade-Weighted USD Index (DTWEXBGS)',
+        path: 'data/dtwexbgs.json',
+        valueKey: 'value',
+        formatter: (v) => numberFormatter.format(Number(v)),
+      },
+      {
+        id: 'dfii10',
+        label: '10y TIPS Real Yield (DFII10)',
+        path: 'data/dfii10.json',
+        valueKey: 'value',
+        formatter: (v) => `${numberFormatter.format(Number(v))}%`,
+      },
+    ];
 
-    (async ()=>{
-      try{
-        // ❶ ファイル名を Python の出力に合わせる
-        const [dfii10, dxy, xau, gld, iau] = await Promise.all([
-          loadArray('data/dfii10.json'),   // 実質10年（TIPS利回り）
-          loadArray('data/dtwexbgs.json'), // 広義ドル指数
-          loadArray('data/xauusd.json'),   // 金（close）
-          loadArray('data/gld.json'),      // GLD（close/adjusted_close/volume）
-          loadArray('data/iau.json')       // IAU
-        ]);
+    const colors = [
+      'rgba(242, 181, 68, 0.85)',
+      'rgba(66, 163, 244, 0.85)',
+      'rgba(144, 238, 144, 0.85)',
+      'rgba(255, 99, 132, 0.85)',
+      'rgba(153, 102, 255, 0.85)',
+    ];
 
-        // ❷ KPI（末尾を表示）
-        const last = a => a[a.length-1];
-        $('kpi-gold').textContent = '$'+fmt.format(last(xau).close);
-        $('kpi-tips').textContent = fmt.format(last(dfii10).value)+'%';
-        $('kpi-dxy').textContent  = fmt.format(last(dxy).value);
-        $('kpi-gld').textContent  = fmt.format(last(gld).close);
-        $('kpi-iau').textContent  = fmt.format(last(iau).close);
-
-        // ❸ チャート描画
-        const g  = build(xau,   'close');
-        const t  = build(dfii10,'value');
-        const dx = build(dxy,   'value');
-        const gg = build(gld,   'close');
-        const ii = build(iau,   'close');
-
-        lineChart($('#chart-gold'), g.labels, [{label:'XAUUSD', data:g.data}]);
-        lineChart($('#chart-tips'), t.labels,[{label:'DFII10 (real 10y)', data:t.data}]);
-        lineChart($('#chart-dxy'),  dx.labels,[{label:'DTWEXBGS', data:dx.data}]);
-        lineChart($('#chart-etf'),  gg.labels,[
-          {label:'GLD', data:gg.data},
-          {label:'IAU', data:ii.data},
-        ]);
-
-        // 中央銀行データ（任意）: あれば読み込む
-        try{
-          const cb = await loadArray('data/cb_sheets.json');
-          const cLabels = cb.map(d=>d.date);
-          const cData   = cb.map(d=>Number(d.tonnes ?? d.value ?? 0));
-          lineChart($('#chart-cb'), cLabels, [{label:'CB net (t)', data:cData}]);
-        }catch(e){ /* 無ければスキップ */ }
-
-      }catch(e){
-        console.error(e);
-        alert('データ読込に失敗しました。/data/*.json が存在するか、ファイル名と形式をご確認ください。');
+    async function loadDataset(dataset) {
+      const response = await fetch(dataset.path, { cache: 'no-cache' });
+      if (!response.ok) {
+        throw new Error(`Failed to load ${dataset.label}`);
       }
-    })();
+      const payload = await response.json();
+      const records = Array.isArray(payload) ? payload : payload.data;
+
+      return records
+        .filter((entry) => entry[dataset.valueKey] !== null && entry[dataset.valueKey] !== undefined)
+        .map((entry) => ({
+          date: entry.date,
+          value: Number(entry[dataset.valueKey]),
+        }))
+        .filter((entry) => Number.isFinite(entry.value))
+        .sort((a, b) => new Date(a.date) - new Date(b.date));
+    }
+
+    function computeChange(latest, previous) {
+      if (!Number.isFinite(latest) || !Number.isFinite(previous) || previous === 0) {
+        return null;
+      }
+      return ((latest - previous) / previous) * 100;
+    }
+
+    function createKpiCard(dataset, latestPoint, change) {
+      const card = document.createElement('article');
+      card.className = 'kpi-card';
+
+      const title = document.createElement('span');
+      title.className = 'kpi-title';
+      title.textContent = dataset.label;
+
+      const value = document.createElement('span');
+      value.className = 'kpi-value';
+      value.textContent = dataset.formatter(latestPoint.value);
+
+      const changeEl = document.createElement('span');
+      changeEl.className = 'kpi-change';
+      if (change === null) {
+        changeEl.textContent = '前日比を計算できません';
+      } else {
+        const formatted = percentFormatter.format(change / 100);
+        const isPositive = change >= 0;
+        changeEl.textContent = `${isPositive ? '▲' : '▼'} ${formatted}（前日比）`;
+        changeEl.style.color = isPositive ? 'var(--accent)' : '#ff6b6b';
+      }
+
+      card.appendChild(title);
+      card.appendChild(value);
+      card.appendChild(changeEl);
+
+      return card;
+    }
+
+    function createChart(dataset, series, color) {
+      const card = document.createElement('article');
+      card.className = 'chart-card';
+
+      const title = document.createElement('h2');
+      title.className = 'chart-title';
+      title.textContent = dataset.label;
+
+      const canvas = document.createElement('canvas');
+      canvas.setAttribute('role', 'img');
+      canvas.setAttribute('aria-label', `${dataset.label} chart`);
+
+      card.appendChild(title);
+      card.appendChild(canvas);
+
+      new window.Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: {
+          labels: series.map((point) => point.date),
+          datasets: [
+            {
+              label: dataset.label,
+              data: series.map((point) => point.value),
+              borderColor: color,
+              backgroundColor: color.replace('0.85', '0.2'),
+              fill: true,
+              tension: 0.25,
+              borderWidth: 2,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              ticks: { color: 'var(--muted)', maxTicksLimit: 6 },
+              grid: { color: 'rgba(255, 255, 255, 0.05)' },
+            },
+            y: {
+              ticks: {
+                color: 'var(--muted)',
+                callback: (value) => {
+                  const formatted = dataset.formatter ? dataset.formatter(value) : value;
+                  return typeof formatted === 'string' ? formatted.replace('$', '$ ') : formatted;
+                },
+              },
+              grid: { color: 'rgba(255, 255, 255, 0.05)' },
+            },
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (context) => {
+                  const val = context.parsed.y;
+                  const formattedValue = dataset.formatter ? dataset.formatter(val) : val;
+                  const date = context.label;
+                  return `${date}: ${formattedValue}`;
+                },
+              },
+            },
+          },
+        },
+      });
+
+      const height = window.innerWidth < 768 ? 240 : 320;
+      canvas.style.width = '100%';
+      canvas.style.height = `${height}px`;
+
+      return card;
+    }
+
+    async function initDashboard() {
+      const kpiGrid = document.getElementById('kpiGrid');
+      const chartsGrid = document.getElementById('chartsGrid');
+
+      const skeleton = Array.from({ length: DATASETS.length }).map(() => {
+        const card = document.createElement('article');
+        card.className = 'kpi-card';
+        card.textContent = 'Loading...';
+        kpiGrid.appendChild(card);
+        return card;
+      });
+
+      try {
+        const seriesList = await Promise.all(DATASETS.map(loadDataset));
+
+        skeleton.forEach((node) => node.remove());
+
+        seriesList.forEach((series, index) => {
+          const dataset = DATASETS[index];
+          if (series.length < 2) return;
+
+          const latestPoint = series[series.length - 1];
+          const previousPoint = series[series.length - 2];
+          const change = computeChange(latestPoint.value, previousPoint.value);
+
+          kpiGrid.appendChild(createKpiCard(dataset, latestPoint, change));
+          chartsGrid.appendChild(createChart(dataset, series, colors[index % colors.length]));
+        });
+      } catch (error) {
+        skeleton.forEach((node) => node.remove());
+        const errorEl = document.createElement('p');
+        errorEl.textContent = `データの取得に失敗しました: ${error.message}`;
+        errorEl.style.color = '#ff6b6b';
+        kpiGrid.appendChild(errorEl);
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      if (!window.Chart) {
+        console.error('Chart.js failed to load');
+        return;
+      }
+      initDashboard();
+    });
   </script>
 </body>
 </html>
