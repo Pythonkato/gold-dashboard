@@ -1,70 +1,59 @@
-<!doctype html>
-<html lang="ja">
-<head>
-<meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Gold Macro Dashboard</title>
-<style>
-  body{background:#0b1220;color:#e5e7eb;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
-  .wrap{max-width:1100px;margin:24px auto;padding:0 16px}
-  .kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin:12px 0 24px}
-  .card{background:#0f172a;border:1px solid #1f2937;border-radius:12px;padding:12px}
-  .k{font-size:12px;color:#94a3b8}.v{font-size:20px;margin-top:4px}
-  canvas{background:#0f172a;border:1px solid #1f2937;border-radius:12px;padding:8px}
-  .g{display:grid;grid-template-columns:1fr;gap:16px}
-</style>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-</head>
-<body>
-<div class="wrap">
-  <h1>Gold Macro Dashboard</h1>
-  <div class="kpis">
-    <div class="card"><div class="k">Gold (XAUUSD)</div><div class="v" id="kpi-gold">…</div></div>
-    <div class="card"><div class="k">10y TIPS real (DFII10)</div><div class="v" id="kpi-tips">…</div></div>
-    <div class="card"><div class="k">Trade-weighted USD (DTWEXBGS)</div><div class="v" id="kpi-dxy">…</div></div>
-    <div class="card"><div class="k">GLD</div><div class="v" id="kpi-gld">…</div></div>
-    <div class="card"><div class="k">IAU</div><div class="v" id="kpi-iau">…</div></div>
-  </div>
-  <div class="g">
-    <canvas id="chart-gold" height="120"></canvas>
-    <canvas id="chart-tips" height="120"></canvas>
-    <canvas id="chart-dxy"  height="120"></canvas>
-    <canvas id="chart-etf"  height="120"></canvas>
-  </div>
-</div>
-
 <script>
   const $=id=>document.getElementById(id);
   const fmt=new Intl.NumberFormat('en-US',{maximumFractionDigits:2});
-  async function j(p){const r=await fetch(p+`?v=${Date.now()}`);if(!r.ok)throw new Error(p);return r.json();}
+
+  async function j(p){
+    const r=await fetch(p+`?v=${Date.now()}`);
+    if(!r.ok) throw new Error(`${p} ${r.status}`);
+    return r.json();
+  }
+
   function build(arr,key){return{labels:arr.map(d=>d.date),data:arr.map(d=>Number(d[key]))};}
-  function line(ctx,labels,datasets){return new Chart(ctx,{type:'line',data:{labels,datasets},
-    options:{responsive:true,interaction:{mode:'index',intersect:false},
-      plugins:{legend:{labels:{color:'#cbd5e1'}}},
-      scales:{x:{ticks:{color:'#94a3b8'}},y:{ticks:{color:'#94a3b8'},grid:{color:'#1f2937'}}}});}
+  function line(el,labels,datasets){
+    return new Chart(el,{type:'line',data:{labels,datasets},
+      options:{responsive:true,interaction:{mode:'index',intersect:false},
+        plugins:{legend:{labels:{color:'#cbd5e1'}}},
+        scales:{x:{ticks:{color:'#94a3b8'}},y:{ticks:{color:'#94a3b8'},grid:{color:'#1f2937'}}}});}
   (async()=>{
-    try{
-      const [dfii10,dxy,xau,gld,iau]=await Promise.all([
-        j('data/dfii10.json'), j('data/dtwexbgs.json'), j('data/xauusd.json'), j('data/gld.json'), j('data/iau.json')
-      ]);
-      const last=a=>a[a.length-1];
-      $('kpi-gold').textContent='$'+fmt.format(last(xau).close);
-      $('kpi-tips').textContent=fmt.format(last(dfii10).value)+'%';
-      $('kpi-dxy').textContent =fmt.format(last(dxy).value);
-      $('kpi-gld').textContent =fmt.format(last(gld).close);
-      $('kpi-iau').textContent =fmt.format(last(iau).close);
+    const tasks = {
+      dfii10: j('data/dfii10.json'),
+      dxy:    j('data/dtwexbgs.json'),
+      xau:    j('data/xauusd.json'),
+      gld:    j('data/gld.json'),
+      iau:    j('data/iau.json'),
+    };
+    const res = await Promise.allSettled(Object.values(tasks));
+    const [dfii10,dxy,xau,gld,iau] = res.map(r=>r.status==='fulfilled'?r.value:null);
 
-      const g =build(xau,'close');
-      const t =build(dfii10,'value');
-      const dx=build(dxy,'value');
-      const gg=build(gld,'close');
-      const ii=build(iau,'close');
+    const last = a => a?.[a.length-1];
 
-      line($('#chart-gold'), g.labels,[{label:'XAUUSD', data:g.data}]);
-      line($('#chart-tips'), t.labels,[{label:'DFII10 (real 10y)', data:t.data}]);
-      line($('#chart-dxy'),  dx.labels,[{label:'DTWEXBGS', data:dx.data}]);
-      line($('#chart-etf'),  gg.labels,[{label:'GLD', data:gg.data},{label:'IAU', data:ii.data}]);
-    }catch(e){console.error(e);alert('データ読込に失敗しました。/data/*.json の存在と形式をご確認ください。');}
+    // KPI（取れたものだけ更新）
+    try { if (xau) $('kpi-gold').textContent = '$'+fmt.format(last(xau).close); } catch {}
+    try { if (dfii10) $('kpi-tips').textContent = fmt.format(last(dfii10).value)+'%'; } catch {}
+    try { if (dxy) $('kpi-dxy').textContent = fmt.format(last(dxy).value); } catch {}
+    try { if (gld) $('kpi-gld').textContent = fmt.format(last(gld).close); } catch {}
+    try { if (iau) $('kpi-iau').textContent = fmt.format(last(iau).close); } catch {}
+
+    // チャート（取れたものだけ描画）
+    try { if (xau) { const g=build(xau,'close'); line($('#chart-gold'), g.labels,[{label:'XAUUSD',data:g.data}]); } } catch {}
+    try { if (dfii10){ const t=build(dfii10,'value'); line($('#chart-tips'), t.labels,[{label:'DFII10 (real 10y)',data:t.data}]); } } catch {}
+    try { if (dxy)  { const dx=build(dxy,'value');  line($('#chart-dxy'), dx.labels,[{label:'DTWEXBGS',data:dx.data}]); } } catch {}
+    try {
+      if (gld && iau) {
+        const gg=build(gld,'close'); const ii=build(iau,'close');
+        line($('#chart-etf'), gg.labels,[{label:'GLD',data:gg.data},{label:'IAU',data:ii.data}]);
+      } else if (gld) {
+        const gg=build(gld,'close'); line($('#chart-etf'), gg.labels,[{label:'GLD',data:gg.data}]);
+      } else if (iau) {
+        const ii=build(iau,'close'); line($('#chart-etf'), ii.labels,[{label:'IAU',data:ii.data}]);
+      }
+    } catch {}
+
+    // 失敗ログを可視化（開発用）
+    res.forEach((r,i)=>{
+      if(r.status!=='fulfilled'){
+        console.warn('fetch failed:', Object.keys(tasks)[i], r.reason);
+      }
+    });
   })();
 </script>
-</body>
-</html>
