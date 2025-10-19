@@ -187,7 +187,22 @@ def _fetch_alpha_daily_close(symbol: str, api_key: str, label: str) -> List[Dict
     _check_alpha_errors(payload, label)
 
     time_series = payload.get("Time Series (Daily)", {})
-    return _parse_alpha_close_series(time_series)
+    parsed = _parse_alpha_close_series(time_series)
+    if not parsed:
+        raise RuntimeError("Alpha Vantage TIME_SERIES_DAILY returned no close prices")
+    return parsed
+
+
+def _xauusd_time_series_or_fred(api_key: str, message: str) -> List[Dict[str, Any]]:
+    print(message)
+    try:
+        return _fetch_alpha_daily_close("XAUUSD", api_key, "XAU/USD")
+    except Exception as exc:
+        print(
+            f"TIME_SERIES_DAILY fallback failed for XAU/USD ({exc}). Attempting FRED gold series...",
+            file=sys.stderr,
+        )
+        return _fred_gold_close_series()
 
 
 def fetch_alpha_fx(from_symbol: str, to_symbol: str) -> List[Dict[str, Any]]:
@@ -202,33 +217,45 @@ def fetch_alpha_fx(from_symbol: str, to_symbol: str) -> List[Dict[str, Any]]:
         "outputsize": "full",
         "apikey": api_key,
     }
-    response = requests.get(ALPHA_BASE_URL, params=params, timeout=30)
-    response.raise_for_status()
-    payload = response.json()
+
+    is_xauusd = from_symbol.upper() == "XAU" and to_symbol.upper() == "USD"
+
+    try:
+        response = requests.get(ALPHA_BASE_URL, params=params, timeout=30)
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as exc:
+        if is_xauusd:
+            return _xauusd_time_series_or_fred(
+                api_key,
+                f"FX_DAILY request failed for XAU/USD ({exc}). Attempting TIME_SERIES_DAILY...",
+            )
+        raise
 
     error_message = payload.get("Error Message")
-    if (
-        error_message
-        and "Invalid API call" in error_message
-        and from_symbol.upper() == "XAU"
-        and to_symbol.upper() == "USD"
-    ):
-        print("FX_DAILY not available for XAU/USD, retrying TIME_SERIES_DAILY...")
-        try:
-            return _fetch_alpha_daily_close(
-                f"{from_symbol}{to_symbol}", api_key, f"{from_symbol}/{to_symbol}"
-            )
-        except Exception as exc:
-            print(
-                f"TIME_SERIES_DAILY fallback failed for XAU/USD ({exc}). Attempting FRED gold series...",
-                file=sys.stderr,
-            )
-            return _fred_gold_close_series()
+    if is_xauusd and error_message and "Invalid API call" in error_message:
+        return _xauusd_time_series_or_fred(
+            api_key, "FX_DAILY not available for XAU/USD, retrying TIME_SERIES_DAILY..."
+        )
 
-    _check_alpha_errors(payload, f"{from_symbol}/{to_symbol}")
+    try:
+        _check_alpha_errors(payload, f"{from_symbol}/{to_symbol}")
+    except Exception as exc:
+        if is_xauusd:
+            return _xauusd_time_series_or_fred(
+                api_key,
+                f"FX_DAILY error for XAU/USD ({exc}). Attempting TIME_SERIES_DAILY...",
+            )
+        raise
 
     time_series = payload.get("Time Series FX (Daily)", {})
-    return _parse_alpha_close_series(time_series)
+    parsed = _parse_alpha_close_series(time_series)
+    if is_xauusd and not parsed:
+        return _xauusd_time_series_or_fred(
+            api_key,
+            "FX_DAILY returned no usable data for XAU/USD. Attempting TIME_SERIES_DAILY...",
+        )
+    return parsed
 
 
 def fetch_alpha_equity(symbol: str) -> List[Dict[str, Any]]:
