@@ -16,7 +16,92 @@
   .g{display:grid;grid-template-columns:1fr;gap:16px}
   .debug{white-space:pre-wrap;background:#111827;border:1px dashed #374151;color:#d1d5db;border-radius:8px;padding:8px;margin:16px 0;display:none}
   .boot{font-size:12px;color:#93c5fd;margin:8px 0}
+  a, a:visited { color:#93c5fd; }
 </style>
+
+<!-- 重要：外部CDNではなく、リポジトリ同梱の Chart.js を参照 -->
+<script src="vendor/chart.umd.min.js" defer></script>
+
+<script defer>
+(function(){
+  const $ = id => document.getElementById(id);
+  const boot = m => { const el=$('boot'); if(el) el.textContent = m; };
+  const show = m => { const box=$('debug'); box.style.display='block'; box.textContent += m+'\n'; console.log(m); };
+
+  boot('booting…');
+
+  const fmt = new Intl.NumberFormat('en-US',{maximumFractionDigits:2});
+
+  async function j(p){
+    const url = p + `?v=${Date.now()}`; // cache bust
+    const r = await fetch(url);
+    if(!r.ok) throw new Error(`${p} ${r.status}`);
+    return r.json(); // expects array
+  }
+
+  function build(arr,key){ return {labels:arr.map(d=>d.date), data:arr.map(d=>Number(d[key]))}; }
+
+  function line(el,labels,datasets){
+    if(!el) throw new Error('canvas not found');
+    if(!window.Chart) throw new Error('Chart.js is not available');
+    return new Chart(el,{type:'line',data:{labels,datasets},
+      options:{responsive:true,interaction:{mode:'index',intersect:false},
+        plugins:{legend:{labels:{color:'#cbd5e1'}}},
+        scales:{x:{ticks:{color:'#94a3b8'}},y:{ticks:{color:'#94a3b8'},grid:{color:'#1f2937'}}}});}
+  
+  window.addEventListener('DOMContentLoaded', async ()=>{
+    try{
+      // Chart.js 読み込み確認
+      if(!window.Chart){
+        show('Chart.js が読み込まれていません。vendor/chart.umd.min.js のパス/存在を確認してください。');
+        return;
+      }
+      boot('Chart.js ready');
+
+      // データ読み込み（部分表示 OK）
+      const tasks = {
+        dfii10: j('data/dfii10.json'),   // [{date,value}]
+        dxy:    j('data/dtwexbgs.json'), // [{date,value}]
+        xau:    j('data/xauusd.json'),   // [{date,close}]
+        gld:    j('data/gld.json'),      // [{date,close,...}]
+        iau:    j('data/iau.json'),      // [{date,close,...}]
+      };
+      const names = Object.keys(tasks);
+      const res = await Promise.allSettled(Object.values(tasks));
+      const map = Object.fromEntries(res.map((r,i)=>[names[i], r.status==='fulfilled'?r.value:null]));
+      names.forEach((k,i)=>{ if(res[i].status!=='fulfilled'){ show(`fetch failed: ${k} → ${res[i].reason}`); } });
+
+      const last = a => a?.[a.length-1];
+
+      // KPI
+      try { if (map.xau)   $('kpi-gold').textContent = '$'+fmt.format(last(map.xau).close); } catch(e){ show('kpi gold: '+e); }
+      try { if (map.dfii10)$('kpi-tips').textContent = fmt.format(last(map.dfii10).value)+'%'; } catch(e){ show('kpi tips: '+e); }
+      try { if (map.dxy)   $('kpi-dxy').textContent  = fmt.format(last(map.dxy).value); } catch(e){ show('kpi dxy: '+e); }
+      try { if (map.gld)   $('kpi-gld').textContent  = fmt.format(last(map.gld).close); } catch(e){ show('kpi gld: '+e); }
+      try { if (map.iau)   $('kpi-iau').textContent  = fmt.format(last(map.iau).close); } catch(e){ show('kpi iau: '+e); }
+
+      // Charts
+      try { if (map.xau)    { const g = build(map.xau,'close'); line($('#chart-gold'), g.labels,[{label:'XAUUSD',data:g.data}]); } } catch(e){ show('chart gold: '+e); }
+      try { if (map.dfii10) { const t = build(map.dfii10,'value'); line($('#chart-tips'), t.labels,[{label:'DFII10 (real 10y)',data:t.data}]); } } catch(e){ show('chart tips: '+e); }
+      try { if (map.dxy)    { const dx= build(map.dxy,'value');  line($('#chart-dxy'),  dx.labels,[{label:'DTWEXBGS',data:dx.data}]); } } catch(e){ show('chart dxy: '+e); }
+      try {
+        const etf = $('#chart-etf');
+        if (map.gld && map.iau) {
+          const gg=build(map.gld,'close'); const ii=build(map.iau,'close');
+          line(etf, gg.labels,[{label:'GLD',data:gg.data},{label:'IAU',data:ii.data}]);
+        } else if (map.gld) {
+          const gg=build(map.gld,'close'); line(etf, gg.labels,[{label:'GLD',data:gg.data}]);
+        } else if (map.iau) {
+          const ii=build(map.iau,'close'); line(etf, ii.labels,[{label:'IAU',data:ii.data}]);
+        }
+      } catch(e){ show('chart etf: '+e); }
+
+    }catch(e){
+      show('fatal: '+e);
+    }
+  });
+})();
+</script>
 </head>
 <body>
   <div class="wrap">
@@ -44,94 +129,5 @@
       Data: FRED (DFII10, DTWEXBGS), Alpha Vantage / FRED (XAUUSD/Gold), ETFs (GLD/IAU).
     </p>
   </div>
-
-<script>
-(function(){
-  const $ = id => document.getElementById(id);
-  const boot = m => { const el=$('boot'); if(el) el.textContent = m; };
-  const show = m => { const box=$('debug'); box.style.display='block'; box.textContent += m+'\n'; console.log(m); };
-
-  // 1) JS が動いているか可視化
-  boot('JS running…');
-
-  // 2) Chart.js を確実に読み込む（2段フォールバック）
-  function loadScript(src){ return new Promise((resolve,reject)=>{ const s=document.createElement('script'); s.src=src; s.onload=resolve; s.onerror=()=>reject(new Error('load failed: '+src)); document.head.appendChild(s); }); }
-  async function ensureChart(){
-    if (window.Chart) return true;
-    // 1st: jsDelivr UMD（バージョン固定）
-    try {
-      await loadScript('https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js');
-      if (window.Chart) return true;
-    } catch(e){ show('[chart] '+e); }
-    // 2nd: cdnjs フォールバック
-    try {
-      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.3/chart.umd.min.js');
-      if (window.Chart) return true;
-    } catch(e){ show('[chart-fallback] '+e); }
-    return false;
-  }
-
-  // 3) データ取得（どれか落ちても部分表示）
-  const fmt = new Intl.NumberFormat('en-US',{maximumFractionDigits:2});
-  async function j(p){
-    const url = p + `?v=${Date.now()}`;
-    const r = await fetch(url);
-    if(!r.ok) throw new Error(`${p} ${r.status}`);
-    return r.json();
-  }
-  function build(arr,key){ return {labels:arr.map(d=>d.date), data:arr.map(d=>Number(d[key]))}; }
-  function line(el,labels,datasets){
-    if(!el) throw new Error('canvas not found');
-    return new Chart(el,{type:'line',data:{labels,datasets},
-      options:{responsive:true,interaction:{mode:'index',intersect:false},
-        plugins:{legend:{labels:{color:'#cbd5e1'}}},
-        scales:{x:{ticks:{color:'#94a3b8'}},y:{ticks:{color:'#94a3b8'},grid:{color:'#1f2937'}}}});}
-  
-  async function main(){
-    // Chart.js check
-    const ok = await ensureChart();
-    if(!ok){ show('Chart.js を読み込めませんでした。ネットワーク/フィルタを確認してください。'); return; }
-    boot('Chart.js ready');
-
-    const tasks = {
-      dfii10: j('data/dfii10.json'),   // [{date,value}]
-      dxy:    j('data/dtwexbgs.json'), // [{date,value}]
-      xau:    j('data/xauusd.json'),   // [{date,close}]
-      gld:    j('data/gld.json'),      // [{date,close,...}]
-      iau:    j('data/iau.json'),      // [{date,close,...}]
-    };
-    const names = Object.keys(tasks);
-    const res = await Promise.allSettled(Object.values(tasks));
-    const map = Object.fromEntries(res.map((r,i)=>[names[i], r.status==='fulfilled'?r.value:null]));
-    names.forEach((k,i)=>{ if(res[i].status!=='fulfilled') show(`fetch failed: ${k} → ${res[i].reason}`); });
-
-    const last = a => a?.[a.length-1];
-
-    try { if (map.xau) $('kpi-gold').textContent = '$'+fmt.format(last(map.xau).close); } catch(e){ show('kpi gold: '+e); }
-    try { if (map.dfii10) $('kpi-tips').textContent = fmt.format(last(map.dfii10).value)+'%'; } catch(e){ show('kpi tips: '+e); }
-    try { if (map.dxy) $('kpi-dxy').textContent = fmt.format(last(map.dxy).value); } catch(e){ show('kpi dxy: '+e); }
-    try { if (map.gld) $('kpi-gld').textContent = fmt.format(last(map.gld).close); } catch(e){ show('kpi gld: '+e); }
-    try { if (map.iau) $('kpi-iau').textContent = fmt.format(last(map.iau).close); } catch(e){ show('kpi iau: '+e); }
-
-    try { if (map.xau) { const g=build(map.xau,'close'); line(document.getElementById('chart-gold'), g.labels,[{label:'XAUUSD',data:g.data}]); } } catch(e){ show('chart gold: '+e); }
-    try { if (map.dfii10){ const t=build(map.dfii10,'value'); line(document.getElementById('chart-tips'), t.labels,[{label:'DFII10 (real 10y)',data:t.data}]); } } catch(e){ show('chart tips: '+e); }
-    try { if (map.dxy)  { const dx=build(map.dxy,'value');  line(document.getElementById('chart-dxy'), dx.labels,[{label:'DTWEXBGS',data:dx.data}]); } } catch(e){ show('chart dxy: '+e); }
-    try {
-      const etf = document.getElementById('chart-etf');
-      if (map.gld && map.iau) {
-        const gg=build(map.gld,'close'); const ii=build(map.iau,'close');
-        line(etf, gg.labels,[{label:'GLD',data:gg.data},{label:'IAU',data:ii.data}]);
-      } else if (map.gld) {
-        const gg=build(map.gld,'close'); line(etf, gg.labels,[{label:'GLD',data:gg.data}]);
-      } else if (map.iau) {
-        const ii=build(map.iau,'close'); line(etf, ii.labels,[{label:'IAU',data:ii.data}]);
-      }
-    } catch(e){ show('chart etf: '+e); }
-  }
-
-  // kick
-  main().catch(e=>{ show('fatal: '+e); });
-})();
-</script>
 </body>
 </html>
