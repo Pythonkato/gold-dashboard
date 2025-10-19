@@ -1,8 +1,7 @@
 <!doctype html>
 <html lang="ja">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Gold Macro Dashboard</title>
 <style>
   body{background:#0b1220;color:#e5e7eb;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
@@ -25,7 +24,6 @@
     <div class="card"><div class="k">GLD</div><div class="v" id="kpi-gld">…</div></div>
     <div class="card"><div class="k">IAU</div><div class="v" id="kpi-iau">…</div></div>
   </div>
-
   <div class="g">
     <canvas id="chart-gold" height="120"></canvas>
     <canvas id="chart-tips" height="120"></canvas>
@@ -35,41 +33,37 @@
 </div>
 
 <script>
-  const $ = id => document.getElementById(id);
-  const fmt = new Intl.NumberFormat('en-US',{maximumFractionDigits:2});
-  async function j(path){ const r=await fetch(path+`?v=${Date.now()}`); if(!r.ok) throw new Error(path); return r.json(); }
-  function build(arr,key){ return { labels: arr.map(d=>d.date), data: arr.map(d=>Number(d[key])) }; }
-  function line(ctx,labels,datasets){
-    return new Chart(ctx,{type:'line',data:{labels,datasets},
-      options:{responsive:true,interaction:{mode:'index',intersect:false},
-        plugins:{legend:{labels:{color:'#cbd5e1'}}},
-        scales:{x:{ticks:{color:'#94a3b8'}},y:{ticks:{color:'#94a3b8'},grid:{color:'#1f2937'}}}});}
-  (async ()=>{
+  const $=id=>document.getElementById(id);
+  const fmt=new Intl.NumberFormat('en-US',{maximumFractionDigits:2});
+  async function j(p){const r=await fetch(p+`?v=${Date.now()}`);if(!r.ok)throw new Error(p);return r.json();}
+  function build(arr,key){return{labels:arr.map(d=>d.date),data:arr.map(d=>Number(d[key]))};}
+  function line(ctx,labels,datasets){return new Chart(ctx,{type:'line',data:{labels,datasets},
+    options:{responsive:true,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{labels:{color:'#cbd5e1'}}},
+      scales:{x:{ticks:{color:'#94a3b8'}},y:{ticks:{color:'#94a3b8'},grid:{color:'#1f2937'}}}});}
+  (async()=>{
     try{
-      const [dfii10, dxy, xau, gld, iau] = await Promise.all([
+      const [dfii10,dxy,xau,gld,iau]=await Promise.all([
         j('data/dfii10.json'), j('data/dtwexbgs.json'), j('data/xauusd.json'), j('data/gld.json'), j('data/iau.json')
       ]);
-      const last = a => a[a.length-1];
-      $('kpi-gold').textContent = '$'+fmt.format(last(xau).close);
-      $('kpi-tips').textContent = fmt.format(last(dfii10).value)+'%';
-      $('kpi-dxy').textContent  = fmt.format(last(dxy).value);
-      $('kpi-gld').textContent  = fmt.format(last(gld).close);
-      $('kpi-iau').textContent  = fmt.format(last(iau).close);
+      const last=a=>a[a.length-1];
+      $('kpi-gold').textContent='$'+fmt.format(last(xau).close);
+      $('kpi-tips').textContent=fmt.format(last(dfii10).value)+'%';
+      $('kpi-dxy').textContent =fmt.format(last(dxy).value);
+      $('kpi-gld').textContent =fmt.format(last(gld).close);
+      $('kpi-iau').textContent =fmt.format(last(iau).close);
 
-      const g  = build(xau,   'close');
-      const t  = build(dfii10,'value');
-      const dx = build(dxy,   'value');
-      const gg = build(gld,   'close');
-      const ii = build(iau,   'close');
+      const g =build(xau,'close');
+      const t =build(dfii10,'value');
+      const dx=build(dxy,'value');
+      const gg=build(gld,'close');
+      const ii=build(iau,'close');
 
-      line($('#chart-gold'), g.labels, [{label:'XAUUSD', data:g.data}]);
-      line($('#chart-tips'), t.labels, [{label:'DFII10 (real 10y)', data:t.data}]);
+      line($('#chart-gold'), g.labels,[{label:'XAUUSD', data:g.data}]);
+      line($('#chart-tips'), t.labels,[{label:'DFII10 (real 10y)', data:t.data}]);
       line($('#chart-dxy'),  dx.labels,[{label:'DTWEXBGS', data:dx.data}]);
       line($('#chart-etf'),  gg.labels,[{label:'GLD', data:gg.data},{label:'IAU', data:ii.data}]);
-    }catch(e){
-      console.error(e);
-      alert('データ読込に失敗しました。/data/*.json の存在と形式をご確認ください。');
-    }
+    }catch(e){console.error(e);alert('データ読込に失敗しました。/data/*.json の存在と形式をご確認ください。');}
   })();
 </script>
 </body>
