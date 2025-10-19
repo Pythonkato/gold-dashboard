@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ja" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta
+    name="description"
+    content="Gold Macro Dashboard は金価格・ETF・米ドル指数・期待インフレなど主要指標をまとめた可視化ページです。"
+  />
+  <title>Gold Macro Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d13;
+      --panel: #151a24;
+      --accent: #f2b544;
+      --text: #f7f7f7;
+      --muted: #9aa3b1;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at top left, rgba(242, 181, 68, 0.2), transparent 45%),
+        radial-gradient(circle at bottom right, rgba(62, 83, 153, 0.2), transparent 45%),
+        var(--bg);
+      font-family: 'Roboto', sans-serif;
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 32px clamp(16px, 2vw, 40px);
+      gap: 32px;
+    }
+
+    header {
+      width: min(1200px, 100%);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    h1 {
+      font-size: clamp(2rem, 3vw, 3rem);
+      margin: 0;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+    }
+
+    .subtitle {
+      font-size: clamp(1rem, 1.6vw, 1.2rem);
+      color: var(--muted);
+      margin: 0;
+      max-width: 720px;
+      line-height: 1.6;
+    }
+
+    .kpi-grid {
+      width: min(1200px, 100%);
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+    }
+
+    .kpi-card {
+      padding: 16px 20px;
+      background: linear-gradient(145deg, rgba(21, 26, 36, 0.9), rgba(16, 20, 28, 0.9));
+      border-radius: 16px;
+      border: 1px solid rgba(242, 181, 68, 0.15);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .kpi-card::after {
+      content: '';
+      position: absolute;
+      inset: -40% 50% auto auto;
+      width: 80%;
+      height: 80%;
+      background: radial-gradient(circle, rgba(242, 181, 68, 0.18), transparent 70%);
+      opacity: 0.6;
+      pointer-events: none;
+    }
+
+    .kpi-title {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+    }
+
+    .kpi-value {
+      font-size: clamp(1.6rem, 2.6vw, 2.4rem);
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .kpi-change {
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+
+    .charts-grid {
+      width: min(1200px, 100%);
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 24px;
+    }
+
+    .chart-card {
+      padding: 20px;
+      background: linear-gradient(160deg, rgba(21, 26, 36, 0.92), rgba(12, 16, 24, 0.92));
+      border-radius: 20px;
+      border: 1px solid rgba(242, 181, 68, 0.12);
+      box-shadow: 0 16px 30px rgba(0, 0, 0, 0.3);
+    }
+
+    .chart-title {
+      margin: 0 0 12px;
+      font-size: 1rem;
+      font-weight: 500;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    footer {
+      margin-top: auto;
+      width: min(1200px, 100%);
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    a {
+      color: var(--accent);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Gold Macro Dashboard</h1>
+    <p class="subtitle">
+      金市場とマクロ環境の主要指標をまとめたダッシュボードです。最新の KPI とトレンドを追跡し、
+      金（XAUUSD）と代表的な ETF（GLD, IAU）、米ドル指数、10 年 BEI を可視化します。
+    </p>
+  </header>
+
+  <section class="kpi-grid" id="kpiGrid" aria-live="polite">
+    <article class="kpi-card">
+      <span class="kpi-title">Gold Spot (XAUUSD)</span>
+      <span class="kpi-value" id="kpi-gold">--</span>
+    </article>
+    <article class="kpi-card">
+      <span class="kpi-title">10y TIPS Real Yield (DFII10)</span>
+      <span class="kpi-value" id="kpi-tips">--</span>
+    </article>
+    <article class="kpi-card">
+      <span class="kpi-title">Trade-Weighted USD (DTWEXBGS)</span>
+      <span class="kpi-value" id="kpi-dxy">--</span>
+    </article>
+    <article class="kpi-card">
+      <span class="kpi-title">GLD ETF</span>
+      <span class="kpi-value" id="kpi-gld">--</span>
+    </article>
+    <article class="kpi-card">
+      <span class="kpi-title">IAU ETF</span>
+      <span class="kpi-value" id="kpi-iau">--</span>
+    </article>
+  </section>
+
+  <section class="charts-grid" id="chartsGrid">
+    <article class="chart-card">
+      <h2 class="chart-title">Gold Spot (XAUUSD)</h2>
+      <canvas id="chart-gold" role="img" aria-label="Gold spot price chart"></canvas>
+    </article>
+    <article class="chart-card">
+      <h2 class="chart-title">10y TIPS Real Yield (DFII10)</h2>
+      <canvas id="chart-tips" role="img" aria-label="10y TIPS real yield chart"></canvas>
+    </article>
+    <article class="chart-card">
+      <h2 class="chart-title">Trade-Weighted USD (DTWEXBGS)</h2>
+      <canvas id="chart-dxy" role="img" aria-label="Trade-weighted USD index chart"></canvas>
+    </article>
+    <article class="chart-card">
+      <h2 class="chart-title">Gold ETFs</h2>
+      <canvas id="chart-etf" role="img" aria-label="Gold ETFs chart"></canvas>
+    </article>
+    <article class="chart-card">
+      <h2 class="chart-title">Central Bank Holdings</h2>
+      <canvas id="chart-cb" role="img" aria-label="Central bank holdings chart"></canvas>
+    </article>
+  </section>
+
+  <footer>
+    データソース: FRED, Alpha Vantage. GitHub Actions により自動更新。
+  </footer>
+
+  <script src="vendor/chart.umd.min.js" defer></script>
+  <script>
+    const $ = (id)=>document.getElementById(id);
+    const fmt = new Intl.NumberFormat('en-US',{maximumFractionDigits:2});
+
+    async function loadArray(path){
+      const r = await fetch(path+`?v=${Date.now()}`);
+      if(!r.ok) throw new Error('failed '+path);
+      return r.json();
+    }
+
+    function lineChart(ctx, labels, datasets){
+      return new Chart(ctx,{
+        type:'line',
+        data:{ labels, datasets },
+        options:{
+          responsive:true,
+          interaction:{ mode:'index', intersect:false },
+          plugins:{ legend:{ labels:{ color:'#cbd5e1' } } },
+          scales:{
+            x:{ ticks:{ color:'#94a3b8' } },
+            y:{ ticks:{ color:'#94a3b8' }, grid:{ color:'#1f2937' } }
+          }
+        }
+      });
+    }
+
+    // 配列 → {labels, data} へ
+    // valueKey は dfii10/dtwexbgs では 'value'、金やETFは 'close'
+    function build(arr, valueKey){
+      const labels = arr.map(d=>d.date);
+      const data   = arr.map(d=>Number(d[valueKey]));
+      return { labels, data };
+    }
+
+    (async ()=>{
+      try{
+        // ❶ ファイル名を Python の出力に合わせる
+        const [dfii10, dxy, xau, gld, iau] = await Promise.all([
+          loadArray('data/dfii10.json'),   // 実質10年（TIPS利回り）
+          loadArray('data/dtwexbgs.json'), // 広義ドル指数
+          loadArray('data/xauusd.json'),   // 金（close）
+          loadArray('data/gld.json'),      // GLD（close/adjusted_close/volume）
+          loadArray('data/iau.json')       // IAU
+        ]);
+
+        // ❷ KPI（末尾を表示）
+        const last = a => a[a.length-1];
+        $('kpi-gold').textContent = '$'+fmt.format(last(xau).close);
+        $('kpi-tips').textContent = fmt.format(last(dfii10).value)+'%';
+        $('kpi-dxy').textContent  = fmt.format(last(dxy).value);
+        $('kpi-gld').textContent  = fmt.format(last(gld).close);
+        $('kpi-iau').textContent  = fmt.format(last(iau).close);
+
+        // ❸ チャート描画
+        const g  = build(xau,   'close');
+        const t  = build(dfii10,'value');
+        const dx = build(dxy,   'value');
+        const gg = build(gld,   'close');
+        const ii = build(iau,   'close');
+
+        lineChart($('#chart-gold'), g.labels, [{label:'XAUUSD', data:g.data}]);
+        lineChart($('#chart-tips'), t.labels,[{label:'DFII10 (real 10y)', data:t.data}]);
+        lineChart($('#chart-dxy'),  dx.labels,[{label:'DTWEXBGS', data:dx.data}]);
+        lineChart($('#chart-etf'),  gg.labels,[
+          {label:'GLD', data:gg.data},
+          {label:'IAU', data:ii.data},
+        ]);
+
+        // 中央銀行データ（任意）: あれば読み込む
+        try{
+          const cb = await loadArray('data/cb_sheets.json');
+          const cLabels = cb.map(d=>d.date);
+          const cData   = cb.map(d=>Number(d.tonnes ?? d.value ?? 0));
+          lineChart($('#chart-cb'), cLabels, [{label:'CB net (t)', data:cData}]);
+        }catch(e){ /* 無ければスキップ */ }
+
+      }catch(e){
+        console.error(e);
+        alert('データ読込に失敗しました。/data/*.json が存在するか、ファイル名と形式をご確認ください。');
+      }
+    })();
+  </script>
+</body>
+</html>
